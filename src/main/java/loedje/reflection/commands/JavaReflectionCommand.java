@@ -57,10 +57,9 @@ public class JavaReflectionCommand {
 		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
 			var objectNode = literal("jr");
 			// int, long, string, boolean, float, double
-			// entity, dimension, position
+			// entity, dimension, objective, vector, source
 			// method, cast, new, field
-			// TODO source
-			// TODO: block position to int x y z?
+			// run
 
 
 			var argEntity = argument(ENTITY_STRING, EntityArgumentType.entity())
@@ -104,6 +103,7 @@ public class JavaReflectionCommand {
 					.executes(JavaReflectionCommand::methodCommand);
 			var argMethodParameters = argument(PARAMETERS_STRING, StringArgumentType.greedyString())
 					.executes(JavaReflectionCommand::methodCommandWithParameters);
+
 			var argRun = argument(RUN_STRING, StringArgumentType.greedyString())
 					.executes(JavaReflectionCommand::runCommand);
 
@@ -212,13 +212,21 @@ public class JavaReflectionCommand {
 
 	private static int field(CommandContext<ServerCommandSource> context) {
 		String key = StringArgumentType.getString(context, KEY_STRING);
-		String className = StringArgumentType.getString(context, CLASS_STRING);
-		String field = StringArgumentType.getString(context, FIELD_STRING);
+		String targetClassName = StringArgumentType.getString(context, CLASS_STRING);
+		String targetFieldName = StringArgumentType.getString(context, FIELD_STRING);
 		try {
-			Object result = getClass(className).getField(field);
+			Object result = getClass(targetClassName).getField(
+					Deobfuscator.namedToClassDef
+							.get(targetClassName)
+							.getFields()
+							.stream()
+							.filter(fieldDef -> fieldDef.getName(Deobfuscator.NAMED).equals(targetFieldName))
+							.findFirst() // Find the first matching field definition
+							.get()       // Get the field definition (may throw if not found)
+							.getName(Deobfuscator.INTERMEDIARY)); // Get the field's name in the INTERMEDIARY mapping;
 			STRING_OBJECT_MAP.put(key, result);
 			context.getSource().sendFeedback(() -> Text.literal(result.toString() + STORED_AT + key),true);
-		} catch (NoSuchFieldException | ClassNotFoundException e) {
+		} catch (NoSuchElementException | NoSuchFieldException | ClassNotFoundException e) {
 			throw new RuntimeException(e);
 		}
 		return 1;
@@ -340,7 +348,7 @@ public class JavaReflectionCommand {
 			}
 			Class<?> aClass = getClass(className);
 			Constructor<?> constructor = types.length == 0 ? aClass.getConstructor() :
-					getConstructor(aClass,types);
+					getConstructor(aClass, types);
 			if (constructor == null) throw new NoSuchMethodException();
 			Object result = constructor.newInstance(parameters);
 			String key = StringArgumentType.getString(context, KEY_STRING);
@@ -373,8 +381,8 @@ public class JavaReflectionCommand {
 				types[i] = (list.contains("TYPE") ? (Class<?>) fields[list.indexOf("TYPE")].get(c) : c);
 			}
 			Object obj = JavaReflectionCommand.STRING_OBJECT_MAP.get(objectKey);
-			Method method = types.length == 0 ? obj.getClass().getMethod(methodName) :
-					getMethod(obj.getClass(),methodName,types);
+			Method method = getMethod(obj.getClass(),methodName,types);
+
 			if (method == null) throw new NoSuchMethodException(methodName);
 			Object result = method.invoke(obj, parameters.toArray());
 			if (result != null) {
@@ -388,21 +396,33 @@ public class JavaReflectionCommand {
 		return 1;
 	}
 
-	private static Method getMethod(Class<?> aClass, String name, Class<?>... parameterTypes) {
-		for (Method m:aClass.getMethods()) {
-			Class<?>[] types;
-			int parametersCount = parameterTypes.length;
-			types = m.getParameterTypes();
-			if (m.getName().equals(name) && types.length == parametersCount) {
-				for (int i = 0; i < types.length; i++) {
-					if (!types[i].isAssignableFrom(parameterTypes[i])) continue;
-					if (i == parametersCount - 1) return m;
+	private static Method getMethod(Class<?> targetClass, String targetMethodName, Class<?>... parameterTypes) {
+		for (Method candidateMethod:targetClass.getMethods()) {
+			Class<?>[] candidateParameterTypes;
+			int targetParametersCount = parameterTypes.length;
+			candidateParameterTypes = candidateMethod.getParameterTypes();
+
+			if (candidateParameterTypes.length == targetParametersCount &&
+					Deobfuscator.intermediaryToNamedMethod.get(candidateMethod.getName()).equals(targetMethodName)) {
+				int i;
+				for (i = 0; i < candidateParameterTypes.length; i++) {
+					if (!candidateParameterTypes[i].isAssignableFrom(parameterTypes[i])) break;
 				}
+				if (i == targetParametersCount) return candidateMethod;
 			}
 		}
 		return null;
 	}
+	public static String extractMethodName(String input) {
+		// Get everything after the last '.'
+		int lastDotIndex = input.lastIndexOf('.');
+		String afterLastDot = input.substring(lastDotIndex + 1);
 
+		// Remove the last two characters ("()")
+		String result = afterLastDot.substring(0, afterLastDot.length() - 2);
+
+		return result;
+	}
 	private static Constructor<?> getConstructor(Class<?> aClass, Class<?>... parameterTypes) {
 		for (Constructor<?> constructor:aClass.getConstructors()) {
 			Class<?>[] types;
@@ -418,10 +438,8 @@ public class JavaReflectionCommand {
 		return null;
 	}
 
-	private static Class<?> getClass(String name) throws ClassNotFoundException {
-		if (name.contains(".")) {
-			return Class.forName("name");
-		}
-		return Class.forName(ClassPaths.classNamePathNameMap.get(name)+name);
+	private static Class<?> getClass(String targetClassName) throws ClassNotFoundException {
+		return Class.forName(
+				Deobfuscator.namedToClassDef.get(targetClassName).getName(Deobfuscator.INTERMEDIARY));
 	}
 }

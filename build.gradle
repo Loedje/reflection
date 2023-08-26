@@ -1,6 +1,7 @@
 plugins {
 	id 'fabric-loom' version '1.1-SNAPSHOT'
 	id 'maven-publish'
+	id 'com.github.johnrengelman.shadow' version '8.1.1'
 }
 
 sourceCompatibility = JavaVersion.VERSION_17
@@ -27,6 +28,8 @@ dependencies {
 	// Fabric API. This is technically optional, but you probably want it anyway.
 	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 
+	implementation 'com.squareup.okhttp3:okhttp:4.11.0'
+	shadow 'com.squareup.okhttp3:okhttp:4.11.0'
 	// Uncomment the following line to enable the deprecated Fabric API modules. 
 	// These are included in the Fabric API production distribution and allow you to update your mod to the latest modules at a later more convenient time.
 
@@ -57,6 +60,19 @@ jar {
 	from("LICENSE") {
 		rename { "${it}_${project.archivesBaseName}"}
 	}
+}
+
+configurations {
+	shadow
+}
+
+shadowJar {
+	configurations = [project.configurations.shadow]
+	relocate 'com.squareup.okhttp3:okhttp:4.11.0', 'loedje.reflection.okhttp3'
+}
+
+remapJar {
+	inputFile = shadowJar.archiveFile
 }
 
 // configure the maven publication
