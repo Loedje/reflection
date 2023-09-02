@@ -399,10 +399,9 @@ public class JavaReflectionCommand {
 
 	private static Method getMethod(Class<?> targetClass, String targetMethodName, Class<?>... parameterTypes) {
 		for (Method candidateMethod:targetClass.getMethods()) {
-			Class<?>[] candidateParameterTypes;
+			if (candidateMethod.getName().startsWith("fabric")) continue;
 			int targetParametersCount = parameterTypes.length;
-			candidateParameterTypes = candidateMethod.getParameterTypes();
-
+			Class<?>[] candidateParameterTypes = candidateMethod.getParameterTypes();
 			if (candidateParameterTypes.length == targetParametersCount &&
 					Deobfuscator.intermediaryToNamedMethod.get(candidateMethod.getName()).equals(targetMethodName)) {
 				int i;
@@ -431,6 +430,6 @@ public class JavaReflectionCommand {
 
 	private static Class<?> getClass(String targetClassName) throws ClassNotFoundException {
 		return Class.forName(
-				Deobfuscator.namedToClassDef.get(targetClassName).getName(Deobfuscator.INTERMEDIARY));
+				Deobfuscator.namedToClassDef.get(targetClassName).getName(Deobfuscator.INTERMEDIARY).replace('/', '.'));
 	}
 }
