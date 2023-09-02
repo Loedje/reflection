@@ -17,7 +17,7 @@ public class Deobfuscator {
 	protected static final Map<String, ClassDef> namedToClassDef = new HashMap<>();
 	public static final String INTERMEDIARY = "intermediary";
 	public static final String NAMED = "named";
-	private static final boolean DEBUG = true;
+	private static final boolean DEBUG = false;
 
 	public static void mapper() {
 
