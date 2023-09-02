@@ -18,8 +18,6 @@ public class Reflection implements ModInitializer {
 	public static final String MOD_ID = "reflection";
 	public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
-	public static final Map<String, String> INTERMEDIARY_NAMED_MAP = new HashMap<>();
-
 	@Override
 	public void onInitialize() {
 		LOGGER.info(OkHttp.VERSION);

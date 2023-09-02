@@ -4,6 +4,7 @@ import com.mojang.brigadier.arguments.*;
 import com.mojang.brigadier.builder.RequiredArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import loedje.reflection.Reflection;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.command.argument.DimensionArgumentType;
 import net.minecraft.command.argument.EntityArgumentType;
@@ -412,16 +413,6 @@ public class JavaReflectionCommand {
 			}
 		}
 		return null;
-	}
-	public static String extractMethodName(String input) {
-		// Get everything after the last '.'
-		int lastDotIndex = input.lastIndexOf('.');
-		String afterLastDot = input.substring(lastDotIndex + 1);
-
-		// Remove the last two characters ("()")
-		String result = afterLastDot.substring(0, afterLastDot.length() - 2);
-
-		return result;
 	}
 	private static Constructor<?> getConstructor(Class<?> aClass, Class<?>... parameterTypes) {
 		for (Constructor<?> constructor:aClass.getConstructors()) {

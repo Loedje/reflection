@@ -2,6 +2,7 @@ package loedje.reflection.commands;
 
 import loedje.reflection.Reflection;
 import loedje.reflection.YarnMappings;
+import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.impl.launch.FabricLauncherBase;
 import net.fabricmc.mapping.tree.ClassDef;
 import net.fabricmc.mapping.tree.TinyTree;
