@@ -20,7 +20,6 @@ public class Reflection implements ModInitializer {
 
 	@Override
 	public void onInitialize() {
-		LOGGER.info(OkHttp.VERSION);
 		YarnMappings.start();
 		Deobfuscator.mapper();
 		JavaReflectionCommand.register();

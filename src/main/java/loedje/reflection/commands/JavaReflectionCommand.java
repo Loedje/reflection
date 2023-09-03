@@ -4,7 +4,6 @@ import com.mojang.brigadier.arguments.*;
 import com.mojang.brigadier.builder.RequiredArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
-import loedje.reflection.Reflection;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.command.argument.DimensionArgumentType;
 import net.minecraft.command.argument.EntityArgumentType;
@@ -25,6 +24,7 @@ import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static loedje.reflection.Reflection.LOGGER;
 import static net.minecraft.server.command.CommandManager.argument;
 import static net.minecraft.server.command.CommandManager.literal;
 
@@ -40,7 +40,6 @@ public class JavaReflectionCommand {
 	public static final String CLASS_STRING = "Class";
 	public static final String OBJECT_STRING = "object";
 	public static final String FIELD_STRING = "field";
-	public static final String CLASS_ARGS_STRING = "Class(args)";
 	public static final String METHOD_STRING = "method";
 	public static final String KEY_STRING = "key";
 	public static final String PARAMETERS_STRING = "parameter1 parameter2 ...";
@@ -49,19 +48,30 @@ public class JavaReflectionCommand {
 	public static final String STORED_AT = " stored at ";
 	public static final String DIMENSION_STRING = "dimension";
 	public static final String OBJECTIVE_STRING = "objective";
+	public static final String VALUE_STRING = "value";
 
 	private JavaReflectionCommand() {
 		throw new IllegalStateException("Utility class");
 	}
 
+	private static void presetKeys() {
+		for (int i = 0; i <= 100; i++) {
+			STRING_OBJECT_MAP.put(Integer.toString(i), i);
+			STRING_OBJECT_MAP.put(i + ".0", ((double) i));
+			STRING_OBJECT_MAP.put(i + "f", ((float) i));
+			STRING_OBJECT_MAP.put("true", true);
+			STRING_OBJECT_MAP.put("false", false);
+		}
+	}
 	public static void register() {
+		presetKeys();
 		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
 			var objectNode = literal("jr");
 			// int, long, string, boolean, float, double
 			// entity, dimension, objective, vector, source
-			// method, cast, new, field
+			// method, cast, new, field (set and get)
 			// run
-
+			// TODO: private methods, remove cast, test new,
 
 			var argEntity = argument(ENTITY_STRING, EntityArgumentType.entity())
 					.executes(JavaReflectionCommand::entity);
@@ -85,14 +95,18 @@ public class JavaReflectionCommand {
 			var argDouble = argument(DOUBLE_STRING, DoubleArgumentType.doubleArg())
 					.executes(JavaReflectionCommand::longFloat);
 
-			var argFieldClass = argument(CLASS_STRING, StringArgumentType.word());
-			var argField = argument(FIELD_STRING, StringArgumentType.word())
-					.executes(JavaReflectionCommand::field);
+			var argFieldObjectSet = argument(OBJECT_STRING, StringArgumentType.word());
+			var argFieldSet = argument(FIELD_STRING, StringArgumentType.word());
+			var argFieldValue = argument(VALUE_STRING, StringArgumentType.greedyString())
+					.executes(JavaReflectionCommand::fieldSet);
 
-			var argCastClass = argument(CLASS_STRING, StringArgumentType.word());
-			var argCastObject = argument(OBJECT_STRING, StringArgumentType.word())
+			var argFieldObjectGet = argument(OBJECT_STRING, StringArgumentType.word());
+			var argFieldGet = argument(FIELD_STRING, StringArgumentType.word())
+					.executes(JavaReflectionCommand::fieldGet);
+
+			var argCastObject = argument(OBJECT_STRING, StringArgumentType.word());
+			var argCastClass = argument(CLASS_STRING, StringArgumentType.word())
 					.executes(JavaReflectionCommand::cast);
-
 
 			var argNew = argument(CLASS_STRING, StringArgumentType.word())
 					.executes(JavaReflectionCommand::constructorCommand);
@@ -132,17 +146,22 @@ public class JavaReflectionCommand {
 											.then(argNewParameters))))
 					.then(literal("cast")
 							.then(key()
-									.then(argCastClass
-											.then(argCastObject))))
+									.then(argCastObject
+											.then(argCastClass))))
 					.then(literal(METHOD_STRING)
 							.then(key()
 									.then(argMethodObject
 											.then(argMethod
 													.then(argMethodParameters)))))
 					.then(literal(FIELD_STRING)
-							.then(key()
-									.then(argFieldClass
-											.then(argField))))
+							.then(literal("set")
+									.then(argFieldObjectSet
+											.then(argFieldSet
+													.then(argFieldValue))))
+							.then(literal("get")
+									.then(key()
+											.then(argFieldObjectGet
+													.then(argFieldGet)))))
 					.then(literal(INT_STRING)
 							.then(key()
 									.then(argInt)))
@@ -211,23 +230,71 @@ public class JavaReflectionCommand {
 		return invokeMethod(context, false);
 	}
 
-	private static int field(CommandContext<ServerCommandSource> context) {
-		String key = StringArgumentType.getString(context, KEY_STRING);
-		String targetClassName = StringArgumentType.getString(context, CLASS_STRING);
-		String targetFieldName = StringArgumentType.getString(context, FIELD_STRING);
+	private static int fieldSet(CommandContext<ServerCommandSource> context) {
+		String objectName = StringArgumentType.getString(context, OBJECT_STRING);
+		String fieldName = StringArgumentType.getString(context, FIELD_STRING);
+		String valueKey = StringArgumentType.getString(context, VALUE_STRING);
+		Object object = STRING_OBJECT_MAP.get(objectName);
+		Object value = STRING_OBJECT_MAP.get(valueKey);
+		Field field = getFieldInClassHierarchy(object, fieldName);
+		field.setAccessible(true);
 		try {
-			Object result = getClass(targetClassName).getField(
-					Deobfuscator.namedToClassDef
-							.get(targetClassName)
-							.getFields()
-							.stream()
-							.filter(fieldDef -> fieldDef.getName(Deobfuscator.NAMED).equals(targetFieldName))
-							.findFirst() // Find the first matching field definition
-							.get()       // Get the field definition (may throw if not found)
-							.getName(Deobfuscator.INTERMEDIARY)); // Get the field's name in the INTERMEDIARY mapping;
-			STRING_OBJECT_MAP.put(key, result);
-			context.getSource().sendFeedback(() -> Text.literal(result.toString() + STORED_AT + key),true);
-		} catch (NoSuchElementException | NoSuchFieldException | ClassNotFoundException e) {
+			field.set(object, value);
+		} catch (IllegalAccessException e) {
+			throw new RuntimeException(e);
+		}
+		context.getSource().sendFeedback(() -> Text.literal(fieldName + " = " + value.toString()), true);
+		return 1;
+	}
+
+	private static Field getFieldInClassHierarchy(Object object, String fieldName) {
+		Class<?> c = object.getClass();
+		while (c != null) {
+			Field field;
+			LOGGER.info("class: " + c.getName());
+			Arrays.stream(c.getDeclaredFields()).forEach(field1 -> LOGGER.info(field1.getName()));
+			field = Arrays.stream(c.getDeclaredFields()).filter(
+							f -> f.getName().equals(fieldName)
+									|| Deobfuscator.intermediaryToNamedField.containsKey(f.getName())
+									&& Deobfuscator.intermediaryToNamedField.get(f.getName())
+									.equals(fieldName))
+					.findFirst().orElse(null);
+			if (field != null) return field;
+			c = c.getSuperclass();
+		}
+		return null;
+	}
+
+	private static Method getMethod(Class<?> targetClass, String targetMethodName, Class<?>... parameterTypes) {
+
+		for (Method candidateMethod:targetClass.getMethods()) {
+			if (!Deobfuscator.intermediaryToNamedMethod.containsKey(candidateMethod.getName())) continue;
+			int targetParametersCount = parameterTypes.length;
+			Class<?>[] candidateParameterTypes = candidateMethod.getParameterTypes();
+			if (candidateParameterTypes.length == targetParametersCount &&
+					Deobfuscator.intermediaryToNamedMethod.get(candidateMethod.getName()).equals(targetMethodName)) {
+				int i;
+				for (i = 0; i < candidateParameterTypes.length; i++) {
+					if (!candidateParameterTypes[i].isAssignableFrom(parameterTypes[i])) break;
+				}
+				if (i == targetParametersCount) return candidateMethod;
+			}
+		}
+		return null;
+	}
+
+	private static int fieldGet(CommandContext<ServerCommandSource> context) {
+		String key = StringArgumentType.getString(context, KEY_STRING);
+		String objectName = StringArgumentType.getString(context, OBJECT_STRING);
+		String fieldName = StringArgumentType.getString(context, FIELD_STRING);
+		Object object = STRING_OBJECT_MAP.get(objectName);
+		Field field = getFieldInClassHierarchy(object, fieldName);
+		field.setAccessible(true);
+		try {
+			Object value = field.get(object);
+			STRING_OBJECT_MAP.put(key, value);
+			context.getSource().sendFeedback(() -> Text.literal(value + STORED_AT + key), true);
+		} catch (IllegalAccessException e) {
 			throw new RuntimeException(e);
 		}
 		return 1;
@@ -288,8 +355,8 @@ public class JavaReflectionCommand {
 
 	private static int cast(CommandContext<ServerCommandSource> context) {
 		String key = StringArgumentType.getString(context, KEY_STRING);
-		String className = StringArgumentType.getString(context, CLASS_STRING);
 		String object = StringArgumentType.getString(context, OBJECT_STRING);
+		String className = StringArgumentType.getString(context, CLASS_STRING);
 		try {
 			Object result = getClass(className).cast(STRING_OBJECT_MAP.get(object));
 			STRING_OBJECT_MAP.put(key, result);
@@ -395,23 +462,6 @@ public class JavaReflectionCommand {
 			throw new RuntimeException(e);
 		}
 		return 1;
-	}
-
-	private static Method getMethod(Class<?> targetClass, String targetMethodName, Class<?>... parameterTypes) {
-		for (Method candidateMethod:targetClass.getMethods()) {
-			if (candidateMethod.getName().startsWith("fabric")) continue;
-			int targetParametersCount = parameterTypes.length;
-			Class<?>[] candidateParameterTypes = candidateMethod.getParameterTypes();
-			if (candidateParameterTypes.length == targetParametersCount &&
-					Deobfuscator.intermediaryToNamedMethod.get(candidateMethod.getName()).equals(targetMethodName)) {
-				int i;
-				for (i = 0; i < candidateParameterTypes.length; i++) {
-					if (!candidateParameterTypes[i].isAssignableFrom(parameterTypes[i])) break;
-				}
-				if (i == targetParametersCount) return candidateMethod;
-			}
-		}
-		return null;
 	}
 	private static Constructor<?> getConstructor(Class<?> aClass, Class<?>... parameterTypes) {
 		for (Constructor<?> constructor:aClass.getConstructors()) {
