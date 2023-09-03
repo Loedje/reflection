@@ -71,7 +71,7 @@ public class JavaReflectionCommand {
 			// entity, dimension, objective, vector, source
 			// method, cast, new, field (set and get)
 			// run
-			// TODO: private methods, remove cast, test new,
+			// TODO: private methods, remove cast, test new, check if game cant crash for invalid values, maybe make a custom error message
 
 			var argEntity = argument(ENTITY_STRING, EntityArgumentType.entity())
 					.executes(JavaReflectionCommand::entity);
@@ -236,22 +236,43 @@ public class JavaReflectionCommand {
 		String valueKey = StringArgumentType.getString(context, VALUE_STRING);
 		Object object = STRING_OBJECT_MAP.get(objectName);
 		Object value = STRING_OBJECT_MAP.get(valueKey);
+		if (value == null) {
+			return 1;
+		}
 		Field field = getFieldInClassHierarchy(object, fieldName);
-		field.setAccessible(true);
+
 		try {
+			if (field == null) throw new NoSuchFieldException();
+			field.setAccessible(true);
 			field.set(object, value);
-		} catch (IllegalAccessException e) {
+		} catch (IllegalAccessException | NoSuchFieldException e) {
 			throw new RuntimeException(e);
 		}
 		context.getSource().sendFeedback(() -> Text.literal(fieldName + " = " + value.toString()), true);
 		return 1;
 	}
 
+	private static int fieldGet(CommandContext<ServerCommandSource> context) {
+		String key = StringArgumentType.getString(context, KEY_STRING);
+		String objectName = StringArgumentType.getString(context, OBJECT_STRING);
+		String fieldName = StringArgumentType.getString(context, FIELD_STRING);
+		Object object = STRING_OBJECT_MAP.get(objectName);
+		Field field = getFieldInClassHierarchy(object, fieldName);
+		try {
+			if (field == null) throw new NoSuchFieldException();
+			field.setAccessible(true);
+			Object value = field.get(object);
+			STRING_OBJECT_MAP.put(key, value);
+			context.getSource().sendFeedback(() -> Text.literal(value + STORED_AT + key), true);
+		} catch (IllegalAccessException | NoSuchFieldException e) {
+			throw new RuntimeException(e);
+		}
+		return 1;
+	}
 	private static Field getFieldInClassHierarchy(Object object, String fieldName) {
 		Class<?> c = object.getClass();
 		while (c != null) {
 			Field field;
-			LOGGER.info("class: " + c.getName());
 			Arrays.stream(c.getDeclaredFields()).forEach(field1 -> LOGGER.info(field1.getName()));
 			field = Arrays.stream(c.getDeclaredFields()).filter(
 							f -> f.getName().equals(fieldName)
@@ -265,39 +286,23 @@ public class JavaReflectionCommand {
 		return null;
 	}
 
-	private static Method getMethod(Class<?> targetClass, String targetMethodName, Class<?>... parameterTypes) {
-
-		for (Method candidateMethod:targetClass.getMethods()) {
-			if (!Deobfuscator.intermediaryToNamedMethod.containsKey(candidateMethod.getName())) continue;
-			int targetParametersCount = parameterTypes.length;
-			Class<?>[] candidateParameterTypes = candidateMethod.getParameterTypes();
-			if (candidateParameterTypes.length == targetParametersCount &&
-					Deobfuscator.intermediaryToNamedMethod.get(candidateMethod.getName()).equals(targetMethodName)) {
-				int i;
-				for (i = 0; i < candidateParameterTypes.length; i++) {
-					if (!candidateParameterTypes[i].isAssignableFrom(parameterTypes[i])) break;
-				}
-				if (i == targetParametersCount) return candidateMethod;
-			}
+	private static Method getMethod(Object object, String targetMethodName, Class<?>... targetParameterTypes) {
+		Class<?> c = object.getClass();
+		int targetParametersCount = targetParameterTypes.length;
+		while (c != null) {
+			Method method = Arrays.stream(c.getDeclaredMethods()).filter(candidateMethod -> {
+				Class<?>[] candidateParameterTypes = candidateMethod.getParameterTypes();
+				boolean matchingNames = candidateMethod.getName().equals(targetMethodName)
+						|| Deobfuscator.intermediaryToNamedField.containsKey(candidateMethod.getName())
+						&& Deobfuscator.intermediaryToNamedMethod.get(candidateMethod.getName())
+						.equals(targetMethodName);
+				return candidateParameterTypes.length == targetParametersCount
+						&& matchingNames;
+				}).findFirst().orElse(null);
+			if (method != null) return method;
+			c = c.getSuperclass();
 		}
 		return null;
-	}
-
-	private static int fieldGet(CommandContext<ServerCommandSource> context) {
-		String key = StringArgumentType.getString(context, KEY_STRING);
-		String objectName = StringArgumentType.getString(context, OBJECT_STRING);
-		String fieldName = StringArgumentType.getString(context, FIELD_STRING);
-		Object object = STRING_OBJECT_MAP.get(objectName);
-		Field field = getFieldInClassHierarchy(object, fieldName);
-		field.setAccessible(true);
-		try {
-			Object value = field.get(object);
-			STRING_OBJECT_MAP.put(key, value);
-			context.getSource().sendFeedback(() -> Text.literal(value + STORED_AT + key), true);
-		} catch (IllegalAccessException e) {
-			throw new RuntimeException(e);
-		}
-		return 1;
 	}
 
 	private static int longFloat(CommandContext<ServerCommandSource> context) {
@@ -438,6 +443,7 @@ public class JavaReflectionCommand {
 		if (hasParameters) {
 			Arrays.stream(StringArgumentType.getString(context, PARAMETERS_STRING).split(" "))
 					.forEach(s -> parameters.add(STRING_OBJECT_MAP.get(s)));
+			if (parameters.contains(null)) return 1;
 		}
 		try {
 			Class<?>[] types = new Class[parameters.size()];
@@ -449,7 +455,7 @@ public class JavaReflectionCommand {
 				types[i] = (list.contains("TYPE") ? (Class<?>) fields[list.indexOf("TYPE")].get(c) : c);
 			}
 			Object obj = JavaReflectionCommand.STRING_OBJECT_MAP.get(objectKey);
-			Method method = getMethod(obj.getClass(),methodName,types);
+			Method method = getMethod(obj, methodName, types);
 
 			if (method == null) throw new NoSuchMethodException(methodName);
 			Object result = method.invoke(obj, parameters.toArray());

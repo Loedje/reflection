@@ -14,7 +14,6 @@ public class Deobfuscator {
 	protected static final Map<String, String> intermediaryToNamedField = new HashMap<>();
 	public static final String INTERMEDIARY = "intermediary";
 	public static final String NAMED = "named";
-	private static final boolean DEBUG = false;
 
 	public static void mapper() {
 		TinyTree mappings = YarnMappings.mappings;
@@ -33,26 +32,5 @@ public class Deobfuscator {
 					));
 
 		});
-
-		if (DEBUG) {
-			intermediaryToNamedField.clear();
-			intermediaryToNamedMethod.clear();
-			classes.forEach(classDef -> {
-
-				classDef.getMethods().forEach(methodDef ->
-						intermediaryToNamedMethod.put(
-								methodDef.getName(NAMED),
-								methodDef.getName(NAMED)
-						));
-
-				classDef.getFields().forEach(fieldDef ->
-						intermediaryToNamedField.put(
-								fieldDef.getName(NAMED),
-								fieldDef.getName(NAMED)
-						));
-
-			});
-
-		}
 	}
 }
