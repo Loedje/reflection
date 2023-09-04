@@ -5,7 +5,6 @@ import com.mojang.brigadier.builder.RequiredArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import loedje.reflection.MappingDeobfuscator;
-import loedje.reflection.Reflection;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.command.argument.DimensionArgumentType;
 import net.minecraft.command.argument.EntityArgumentType;
@@ -50,6 +49,7 @@ public class JavaReflectionCommand {
 	private static final String BOOLEAN_STRING = "boolean";
 	private static final String FLOAT_STRING = "float";
 	private static final String DOUBLE_STRING = "double";
+	public static final String CLASS_NOT_FOUND = "Class \"%s\" could not be found.";
 
 	private JavaReflectionCommand() {
 		throw new IllegalStateException("Utility class");
@@ -62,7 +62,7 @@ public class JavaReflectionCommand {
 			// entity, dimension, objective, vector, source
 			// method, cast, new, field (set and get)
 			// run
-			// TODO: do tests
+			// TODO: rewrite constructor
 
 			var argEntity = argument(ENTITY_STRING, EntityArgumentType.entity())
 					.executes(JavaReflectionCommand::entity);
@@ -361,7 +361,10 @@ public class JavaReflectionCommand {
 		Object object = STRING_OBJECT_MAP.get(objectName);
 		try {
 			if (object == null) throw new ObjectNotFoundException();
-			Object result = getClass(className).cast(object);
+			Class<?> aClass = getClass(className);
+			if (aClass == null) throw new ClassNotFoundException(
+					String.format(CLASS_NOT_FOUND, className));
+			Object result = aClass.cast(object);
 			STRING_OBJECT_MAP.put(key, result);
 			context.getSource().sendFeedback(() -> Text.literal(result + STORED_AT + key), true);
 		} catch (ClassNotFoundException | ObjectNotFoundException e) {
@@ -371,17 +374,21 @@ public class JavaReflectionCommand {
 		return 1;
 	}
 	private static Class<?> getClass(String targetClassName) throws ClassNotFoundException {
-		if (!MappingDeobfuscator.getNamedToClassDef().containsKey(targetClassName)) return null;
-		return Class.forName(
-				MappingDeobfuscator.getNamedToClassDef().get(targetClassName).getName(MappingDeobfuscator.INTERMEDIARY).replace('/', '.'));
+		try {
+			return Class.forName(targetClassName);
+		} catch (ClassNotFoundException e) {
+			if (!MappingDeobfuscator.getNamedToClassDef().containsKey(targetClassName)) return null;
+			return Class.forName(
+					MappingDeobfuscator.getNamedToClassDef().get(targetClassName).getName(MappingDeobfuscator.INTERMEDIARY).replace('/', '.'));
+		}
 	}
 
 	private static int constructorCommandWithParameters(CommandContext<ServerCommandSource> context) {
-		return constructor(context, true);
+		return invokeConstructor(context, true);
 	}
 
 	private static int constructorCommand(CommandContext<ServerCommandSource> context) {
-		return constructor(context, false);
+		return invokeConstructor(context, false);
 	}
 
 	/**
@@ -391,18 +398,20 @@ public class JavaReflectionCommand {
 	 * @param hasParameters Indicates whether the constructor has parameters.
 	 * @return 1 if the object is successfully constructed.
 	 */
-	private static int constructor(CommandContext<ServerCommandSource> context, boolean hasParameters) {
+	private static int invokeConstructor(CommandContext<ServerCommandSource> context, boolean hasParameters) {
 		String className = StringArgumentType.getString(context, CLASS_STRING);
 		List<Object> parameters = buildParametersList(context, hasParameters);
 		try {
 			if (parameters.contains(null)) throw new ObjectNotFoundException();
 			Class<?>[] types = buildParameterTypes(parameters);
 			Class<?> aClass = getClass(className);
-			if (aClass == null) throw new ClassNotFoundException("Class \"" + className + "\" could not be found.");
+			if (aClass == null) throw new ClassNotFoundException(
+					String.format(CLASS_NOT_FOUND, className));
 			Constructor<?> constructor = types.length == 0 ? aClass.getConstructor() :
 					getConstructor(aClass, types);
-			if (constructor == null) throw new NoSuchMethodException();
-			Object result = constructor.newInstance(parameters);
+			if (constructor == null)
+				throw new NoSuchMethodException("Constructor could not be found.");
+			Object result = constructor.newInstance(parameters.toArray());
 			String key = StringArgumentType.getString(context, KEY_STRING);
 			STRING_OBJECT_MAP.put(key, result);
 			context.getSource().sendFeedback(() -> Text.literal(result + STORED_AT + key), true);
@@ -414,19 +423,11 @@ public class JavaReflectionCommand {
 		return 1;
 	}
 
-	private static Constructor<?> getConstructor(Class<?> aClass, Class<?>... parameterTypes) {
-		for (Constructor<?> constructor : aClass.getConstructors()) {
-			Class<?>[] types;
-			int parametersCount = parameterTypes.length;
-			types = constructor.getParameterTypes();
-			if (types.length == parametersCount) {
-				for (int i = 0; i < types.length; i++) {
-					if (!types[i].isAssignableFrom(parameterTypes[i])) continue;
-					if (i == parametersCount - 1) return constructor;
-				}
-			}
-		}
-		return null;
+	private static Constructor<?> getConstructor(Class<?> aClass, Class<?>... targetParameterTypes) {
+		return Arrays.stream(aClass.getConstructors()).filter(candidateConstructor -> {
+			Class<?>[] candidateParameterTypes = candidateConstructor.getParameterTypes();
+			return areParametersAssignable(candidateParameterTypes, targetParameterTypes);
+		}).findFirst().orElse(null);
 	}
 
 	private static int methodCommandWithParameters(CommandContext<ServerCommandSource> context) {
@@ -453,7 +454,8 @@ public class JavaReflectionCommand {
 			if (object == null || parameters.contains(null)) throw new ObjectNotFoundException();
 			Class<?>[] types = buildParameterTypes(parameters);
 			Method method = getMethod(object, methodName, types);
-			if (method == null) throw new NoSuchMethodException("Method \"" + methodName + "\" could not be found.");
+			if (method == null)
+				throw new NoSuchMethodException("Method could not be found.");
 			method.setAccessible(true);
 			Object result = method.invoke(object, parameters.toArray());
 			if (result != null) {
