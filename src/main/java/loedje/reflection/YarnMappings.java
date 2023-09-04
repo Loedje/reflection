@@ -18,12 +18,14 @@ import java.util.jar.JarFile;
 import java.util.zip.ZipEntry;
 
 public class YarnMappings {
-	public static TinyTree mappings;
-	public static void start() {
+	private YarnMappings() {
+		throw new AssertionError("This class should not be instantiated.");
+	}
+	public static TinyTree getMappings() {
 		try {
 			String latestYarnVersion = getLatestYarnVersion();
 			Path yarnJarPath = downloadYarnJar(latestYarnVersion);
-			extractMappings(yarnJarPath);
+			return extractMappings(yarnJarPath);
 		} catch (IOException e) {
 			throw new RuntimeException("Error processing Yarn: " + e.getMessage(), e);
 		}
@@ -62,11 +64,11 @@ public class YarnMappings {
 		return path;
 	}
 
-	private static void extractMappings(Path jarPath) throws IOException {
+	private static TinyTree extractMappings(Path jarPath) throws IOException {
 		try (JarFile jarFile = new JarFile(jarPath.toFile())) {
 			ZipEntry entry = jarFile.getEntry("mappings/mappings.tiny");
 			try (BufferedReader br = new BufferedReader(new InputStreamReader(jarFile.getInputStream(entry)))) {
-				mappings = TinyMappingFactory.loadWithDetection(br);
+				return TinyMappingFactory.loadWithDetection(br);
 			}
 		}
 	}
