@@ -5,6 +5,7 @@ import com.mojang.brigadier.builder.RequiredArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import loedje.reflection.MappingDeobfuscator;
+import loedje.reflection.Reflection;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.command.argument.DimensionArgumentType;
 import net.minecraft.command.argument.EntityArgumentType;
@@ -369,9 +370,8 @@ public class JavaReflectionCommand {
 		}
 		return 1;
 	}
-
-
 	private static Class<?> getClass(String targetClassName) throws ClassNotFoundException {
+		if (!MappingDeobfuscator.getNamedToClassDef().containsKey(targetClassName)) return null;
 		return Class.forName(
 				MappingDeobfuscator.getNamedToClassDef().get(targetClassName).getName(MappingDeobfuscator.INTERMEDIARY).replace('/', '.'));
 	}
@@ -398,6 +398,7 @@ public class JavaReflectionCommand {
 			if (parameters.contains(null)) throw new ObjectNotFoundException();
 			Class<?>[] types = buildParameterTypes(parameters);
 			Class<?> aClass = getClass(className);
+			if (aClass == null) throw new ClassNotFoundException("Class \"" + className + "\" could not be found.");
 			Constructor<?> constructor = types.length == 0 ? aClass.getConstructor() :
 					getConstructor(aClass, types);
 			if (constructor == null) throw new NoSuchMethodException();
@@ -452,8 +453,8 @@ public class JavaReflectionCommand {
 			if (object == null || parameters.contains(null)) throw new ObjectNotFoundException();
 			Class<?>[] types = buildParameterTypes(parameters);
 			Method method = getMethod(object, methodName, types);
-
-			if (method == null) throw new NoSuchMethodException(methodName);
+			if (method == null) throw new NoSuchMethodException("Method \"" + methodName + "\" could not be found.");
+			method.setAccessible(true);
 			Object result = method.invoke(object, parameters.toArray());
 			if (result != null) {
 				String key = StringArgumentType.getString(context, KEY_STRING);
@@ -474,7 +475,7 @@ public class JavaReflectionCommand {
 			Method method = Arrays.stream(c.getDeclaredMethods()).filter(candidateMethod -> {
 				Class<?>[] candidateParameterTypes = candidateMethod.getParameterTypes();
 				boolean matchingNames = candidateMethod.getName().equals(targetMethodName)
-						|| MappingDeobfuscator.getIntermediaryToNamedField().containsKey(candidateMethod.getName())
+						|| MappingDeobfuscator.getIntermediaryToNamedMethod().containsKey(candidateMethod.getName())
 						&& MappingDeobfuscator.getIntermediaryToNamedMethod().get(candidateMethod.getName())
 						.equals(targetMethodName);
 				return matchingNames && areParametersAssignable(candidateParameterTypes, targetParameterTypes);
