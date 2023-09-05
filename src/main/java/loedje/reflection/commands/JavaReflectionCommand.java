@@ -62,7 +62,7 @@ public class JavaReflectionCommand {
 			// entity, dimension, objective, vector, source
 			// method, cast, new, field (set and get)
 			// run
-			// TODO: rewrite constructor
+			// TODO: make a description
 
 			var argEntity = argument(ENTITY_STRING, EntityArgumentType.entity())
 					.executes(JavaReflectionCommand::entity);
@@ -85,6 +85,9 @@ public class JavaReflectionCommand {
 					.executes(JavaReflectionCommand::floatingPoint);
 			var argDouble = argument(DOUBLE_STRING, DoubleArgumentType.doubleArg())
 					.executes(JavaReflectionCommand::longFloat);
+
+			var argClass = argument(CLASS_STRING, StringArgumentType.word())
+					.executes(JavaReflectionCommand::classCommand);
 
 			var argFieldObjectSet = argument(OBJECT_STRING, StringArgumentType.word());
 			var argFieldSet = argument(FIELD_STRING, StringArgumentType.word());
@@ -143,6 +146,9 @@ public class JavaReflectionCommand {
 									.then(argMethodObject
 											.then(argMethod
 													.then(argMethodParameters)))))
+					.then(literal("class")
+							.then(key()
+									.then(argClass)))
 					.then(literal(FIELD_STRING)
 							.then(literal("set")
 									.then(argFieldObjectSet
@@ -341,6 +347,9 @@ public class JavaReflectionCommand {
 
 	private static Field getFieldInClassHierarchy(Object object, String fieldName) {
 		Class<?> c = object.getClass();
+		if (c == Class.class) {
+			c = ((Class<?>) object);
+		}
 		while (c != null) {
 			Field field = Arrays.stream(c.getDeclaredFields()).filter(
 							f -> f.getName().equals(fieldName)
@@ -352,6 +361,23 @@ public class JavaReflectionCommand {
 			c = c.getSuperclass();
 		}
 		return null;
+	}
+
+	private static int classCommand(CommandContext<ServerCommandSource> context) {
+
+		String key = StringArgumentType.getString(context, KEY_STRING);
+		String className = StringArgumentType.getString(context, CLASS_STRING);
+		try {
+			Class<?> result = getClass(className);
+			if (result == null) throw new ClassNotFoundException(
+					String.format(CLASS_NOT_FOUND, className));
+			STRING_OBJECT_MAP.put(key, result);
+			context.getSource().sendFeedback(() -> Text.literal(result + STORED_AT + key), true);
+		} catch (ClassNotFoundException e) {
+			context.getSource().sendError(Text.literal(e.getMessage()));
+			return 1;
+		}
+		return 1;
 	}
 
 	private static int cast(CommandContext<ServerCommandSource> context) {
@@ -473,6 +499,9 @@ public class JavaReflectionCommand {
 
 	private static Method getMethod(Object object, String targetMethodName, Class<?>... targetParameterTypes) {
 		Class<?> c = object.getClass();
+		if (c == Class.class) {
+			c = ((Class<?>) object);
+		}
 		while (c != null) {
 			Method method = Arrays.stream(c.getDeclaredMethods()).filter(candidateMethod -> {
 				Class<?>[] candidateParameterTypes = candidateMethod.getParameterTypes();
